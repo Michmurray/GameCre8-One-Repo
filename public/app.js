@@ -1,5 +1,3 @@
-// public/app.js
-// Frontend glue: calls /api/generate and loads the returned game into the engine.
 import { TinyEngine } from "./engine.js";
 
 const canvas = document.getElementById("game");
@@ -9,37 +7,32 @@ const titleEl = document.getElementById("title");
 const statusEl = document.getElementById("status");
 
 const engine = new TinyEngine(canvas);
+let currentGame = null;
+
+async function call(path, payload) {
+  const res = await fetch(path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload || {})
+  });
+  if (!res.ok) throw new Error(path + " -> " + res.status);
+  return res.json();
+}
 
 async function createAndPlay() {
   try {
-    statusEl.textContent = "Loading...";
+    statusEl.textContent = "Generating...";
     goBtn.disabled = true;
-
-    const res = await fetch("/api/generate", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ prompt: promptInput.value || "" }),
+    const { game } = await call("/api/generate", {
+      prompt: promptInput.value || "",
+      auto: true,
+      iterations: 18
     });
 
-    if (!res.ok) {
-      throw new Error(`API error: ${res.status}`);
-    }
-
-    const data = await res.json();
-
-    // Accept either { game: {...} } or the game object directly
-    const spec = data?.game ?? data;
-
-    if (!spec || !spec.world) {
-      throw new Error("Bad spec from API (missing world).");
-    }
-
-    // Optional UI polish
-    titleEl.textContent = spec.meta?.title ?? "GameCre8 Placeholder";
-
-    // Load and play
-    engine.load(spec);
-    statusEl.textContent = "Go!";
+    currentGame = game;
+    titleEl.textContent = game?.meta?.title || "GameCre8";
+    engine.load(game);
+    statusEl.textContent = "Go! (press R to refine)";
   } catch (err) {
     console.error(err);
     statusEl.textContent = "Error. Check console.";
@@ -48,13 +41,25 @@ async function createAndPlay() {
   }
 }
 
-goBtn.addEventListener("click", createAndPlay);
-
-// Auto-load a demo on first paint
-window.addEventListener("load", () => {
-  if (promptInput) {
-    promptInput.value = "A simple platformer with coins and lava";
+async function refineOnce() {
+  if (!currentGame) return;
+  try {
+    statusEl.textContent = "Refining...";
+    const { game } = await call("/api/refine", { game: currentGame, iterations: 12 });
+    currentGame = game;
+    engine.load(game);
+    statusEl.textContent = "Refined. Press R again to iterate.";
+  } catch (e) {
+    console.error(e);
+    statusEl.textContent = "Refine failed.";
   }
-  // Don't auto-start if you prefer manual; otherwise uncomment:
-  // createAndPlay();
+}
+
+goBtn.addEventListener("click", createAndPlay);
+window.addEventListener("keydown", (e) => {
+  if (e.key.toLowerCase() === "r") refineOnce();
+});
+
+window.addEventListener("load", () => {
+  if (promptInput) promptInput.value ||= "a fun medium platformer with coins";
 });

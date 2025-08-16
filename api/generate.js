@@ -1,38 +1,23 @@
-// api/generate.js
-// Plain Node/Micro style for Vercel serverless function (no Express).
+// Node/Micro style endpoint: POST {prompt, auto?, iterations?} -> {ok, game}
+const { generateFromPrompt } = require("./generator");
 
 module.exports = async (req, res) => {
-  // We can ignore the POST body for the placeholder
-  // (Reading/parsing isn't required; the game is static for now.)
+  try {
+    let body = "";
+    for await (const chunk of req) body += chunk;
+    const data = body ? JSON.parse(body) : {};
+    const prompt = data.prompt || "";
+    const auto = data.auto !== false; // default: true
+    const iterations = Number(data.iterations) || undefined;
 
-  const game = {
-    meta: { title: "GameCre8 Placeholder" },
-    world: { width: 800, height: 480, gravity: 0.7 },
-    player: {
-      start: { x: 40, y: 320 },
-      size: { w: 26, h: 26 },
-      speed: 3.2,
-      jump: 11
-    },
-    platforms: [
-      { x: 0,   y: 440, w: 800, h: 40 },
-      { x: 150, y: 360, w: 120, h: 12 },
-      { x: 320, y: 320, w: 120, h: 12 },
-      { x: 520, y: 280, w: 120, h: 12 }
-    ],
-    coins: [
-      { x: 190, y: 330 },
-      { x: 360, y: 290 },
-      { x: 560, y: 250 }
-    ],
-    lava: [
-      { x: 380, y: 430, w: 120, h: 10 }
-    ],
-    controls: { left: ["ArrowLeft"], right: ["ArrowRight"], jump: ["ArrowUp", "Space"] }
-  };
+    const game = generateFromPrompt(prompt, { auto, iterations });
 
-  const payload = { ok: true, game };
-  res.setHeader("Content-Type", "application/json");
-  res.statusCode = 200;
-  res.end(JSON.stringify(payload));
+    res.statusCode = 200;
+    res.setHeader("Content-Type", "application/json");
+    res.end(JSON.stringify({ ok: true, game }));
+  } catch (err) {
+    res.statusCode = 500;
+    res.setHeader("Content-Type", "application/json");
+    res.end(JSON.stringify({ ok:false, error: String(err?.message || err) }));
+  }
 };
