@@ -1,14 +1,9 @@
 // api/generate.js
-// Returns a simple playable placeholder game spec.
+// Plain Node/Micro style for Vercel serverless function (no Express).
 
-export default function handler(req, res) {
-  // Optional: read prompt from POST body
-  let promptText = "";
-  try {
-    if (req.method === "POST" && req.body && typeof req.body === "object") {
-      promptText = req.body.prompt || "";
-    }
-  } catch (_) {}
+module.exports = async (req, res) => {
+  // We can ignore the POST body for the placeholder
+  // (Reading/parsing isn't required; the game is static for now.)
 
   const game = {
     meta: { title: "GameCre8 Placeholder" },
@@ -33,4 +28,11 @@ export default function handler(req, res) {
     lava: [
       { x: 380, y: 430, w: 120, h: 10 }
     ],
-    controls: { left: ["ArrowLeft"], right: ["ArrowRight"], jump:
+    controls: { left: ["ArrowLeft"], right: ["ArrowRight"], jump: ["ArrowUp", "Space"] }
+  };
+
+  const payload = { ok: true, game };
+  res.setHeader("Content-Type", "application/json");
+  res.statusCode = 200;
+  res.end(JSON.stringify(payload));
+};
