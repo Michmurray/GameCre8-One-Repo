@@ -1,0 +1,320 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+<title>GameCre8 — Galaxy Blaster</title>
+<meta name="description" content="Say it. Play it. Share it. Play our polished Galaxy Blaster demo instantly." />
+<style>
+  :root{--fg:#0b0f1a;--muted:#5d6b86;--bg:#f6f8ff;--line:#e6eaf2;--card:#ffffff;--accent:#1463ff;--dark:#0e1220}
+  *{box-sizing:border-box} html,body{height:100%;margin:0;background:var(--bg);color:var(--fg);font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif}
+  a{color:inherit}
+  .wrap{max-width:980px;margin:0 auto;padding:28px 16px}
+  header{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
+  .brand{display:flex;gap:10px;align-items:baseline}
+  .logo{font-weight:900;font-size:22px;letter-spacing:.2px}
+  .tag{color:var(--muted)}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:16px;margin:14px 0}
+  .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+  .btn{appearance:none;border:1px solid var(--line);background:#fff;padding:10px 14px;border-radius:10px;cursor:pointer}
+  .btn.primary{background:var(--accent);color:#fff;border-color:var(--accent)}
+  .muted{color:var(--muted)}
+  /* Game shell */
+  #gameShell{display:none}
+  #gameBox{position:relative;border:1px solid var(--line);border-radius:16px;overflow:hidden;background:radial-gradient(1200px 600px at 50% -200px,#1b2342 10%,#0e1220 60%)}
+  #hud{position:absolute;top:10px;left:10px;background:rgba(0,0,0,.45);backdrop-filter:blur(4px);padding:8px 12px;border-radius:12px;font-size:14px;color:#eaf2ff;z-index:2}
+  #hud .pill{display:inline-block;margin-right:6px;padding:4px 8px;border-radius:999px;background:#0f1530;border:1px solid #263157}
+  #fsBtn{position:absolute;top:10px;right:10px;z-index:2}
+  #overlay{position:absolute;inset:0;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.55);z-index:3}
+  .overlayCard{background:#0f1530;border:1px solid #263157;border-radius:14px;max-width:420px;padding:18px;color:#eaf2ff;text-align:center}
+  .overlayCard h2{margin:0 0 8px}
+  .tips{position:absolute;bottom:8px;left:8px;opacity:.75;font-size:12px;color:#cfe3ff;background:rgba(0,0,0,.35);padding:6px 8px;border-radius:8px;z-index:2}
+  canvas{display:block;width:100%;height:auto}
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <div class="brand">
+        <div class="logo">GameCre8</div>
+        <div class="tag">Say it. Play it. Share it.</div>
+      </div>
+      <button class="btn" id="aboutBtn" onclick="alert('Galaxy Blaster demo build for rapid playtesting. Mobile: drag to move, tap to shoot. Desktop: WASD/Arrows + Space.');">About</button>
+    </header>
+
+    <!-- Hero -->
+    <div class="card">
+      <h1 style="margin:0 0 6px">Galaxy Blaster</h1>
+      <p class="muted" style="margin:0 0 12px">Fast, polished, mobile-friendly shooter. Play instantly.</p>
+      <div class="row">
+        <button class="btn primary" id="playNow">Play Now</button>
+        <button class="btn" id="fullscreenTop">Fullscreen</button>
+      </div>
+    </div>
+
+    <!-- Game -->
+    <div class="card" id="gameShell">
+      <div id="gameBox">
+        <div id="hud"><span class="pill">Score: <b id="scoreV">0</b></span><span class="pill">Wave: <b id="waveV">1</b></span><span class="pill">Lives: <b id="livesV">3</b></span></div>
+        <button class="btn" id="fsBtn">⤢</button>
+        <div id="overlay">
+          <div class="overlayCard">
+            <h2 id="ovTitle">Game Over</h2>
+            <div id="ovMsg">You reached wave <b id="ovWave">1</b> with score <b id="ovScore">0</b>.</div>
+            <div class="row" style="justify-content:center;margin-top:12px">
+              <button class="btn primary" id="retryBtn">Play Again</button>
+            </div>
+          </div>
+        </div>
+        <div class="tips">Mobile: drag to move, tap to shoot · Desktop: WASD/Arrows move, Space shoots</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Phaser -->
+  <script src="https://cdn.jsdelivr.net/npm/phaser@3.70.0/dist/phaser.min.js"></script>
+  <script>
+  (function(){
+    // UI wiring
+    const gameShell = document.getElementById('gameShell');
+    const gameBox   = document.getElementById('gameBox');
+    const fsBtns    = [document.getElementById('fullscreenTop'), document.getElementById('fsBtn')];
+    document.getElementById('playNow').onclick = () => {
+      gameShell.style.display = 'block';
+      if (!window.__gc8Booted) { window.__gc8Booted = true; bootGame(); }
+      gameBox.scrollIntoView({behavior:'smooth', block:'start'});
+    };
+    fsBtns.forEach(b => b.onclick = () => {
+      if (document.fullscreenElement) document.exitFullscreen();
+      else gameBox.requestFullscreen().catch(()=>{});
+    });
+
+    // Game
+    const mobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+    let touchMove = null, touchFire = false;
+
+    function bootGame(){
+      class Play extends Phaser.Scene {
+        constructor(){ super('Play'); }
+        preload(){
+          const g = this.make.graphics({x:0,y:0,add:false});
+          // Player ship
+          g.clear();
+          g.fillStyle(0x21d0ff,1);
+          g.beginPath(); g.moveTo(24,4); g.lineTo(40,20); g.lineTo(24,36); g.lineTo(8,20); g.closePath(); g.fillPath();
+          g.lineStyle(3,0x76ecff,1); g.strokeCircle(24,20,18);
+          g.generateTexture('ship',48,40);
+          // Bullet
+          g.clear(); g.fillStyle(0xfff2a6,1); g.fillRoundedRect(0,0,6,16,3);
+          g.generateTexture('bullet',6,16);
+          // Enemy
+          g.clear();
+          g.fillStyle(0xff6b6b,1);
+          g.beginPath(); g.moveTo(24,4); g.lineTo(40,20); g.lineTo(24,36); g.lineTo(8,20); g.closePath(); g.fillPath();
+          g.lineStyle(3,0x891b1b,1); g.strokeCircle(24,20,16);
+          g.generateTexture('enemy',48,40);
+          // Boss
+          g.clear(); g.fillStyle(0xff3b3b,1); g.fillCircle(36,36,36);
+          g.lineStyle(6,0x6b0d0d,1); g.strokeCircle(36,36,34);
+          g.generateTexture('boss',72,72);
+          // Spark particle
+          g.clear(); g.fillStyle(0xffd966,1); g.fillCircle(3,3,3);
+          g.generateTexture('spark',6,6);
+          // Shield
+          g.clear(); g.lineStyle(4,0x66e1ff,1); g.strokeCircle(26,26,24);
+          g.generateTexture('shield',52,52);
+          // starfield
+          const stars = this.make.renderTexture({ width:1920, height:1080, add:false });
+          for(let i=0;i<320;i++){
+            const x = Math.random()*1920, y = Math.random()*1080;
+            const c = (Math.random()<0.85)?0x99b7ff:0xffffff;
+            stars.fill(c, 1, x, y, 2, 2);
+          }
+          stars.saveTexture('stars');
+        }
+        create(){
+          const { width:w, height:h } = this.scale;
+          // Background parallax
+          this.bg1 = this.add.image(0,0,'stars').setOrigin(0).setScrollFactor(0.2).setAlpha(0.9);
+          this.bg2 = this.add.image(-960,-540,'stars').setOrigin(0).setScrollFactor(0.1).setAlpha(0.5);
+          // Player
+          this.player = this.physics.add.image(w*0.5, h*0.78, 'ship').setDepth(5).setDamping(true).setDrag(0.08).setMaxVelocity(480,480);
+          this.player.body.setCircle(18, 6, 2);
+          this.lives = 3; document.getElementById('livesV').textContent = String(this.lives);
+          this.shield = this.add.image(this.player.x, this.player.y, 'shield').setDepth(4).setVisible(false);
+          // Groups
+          this.bullets = this.physics.add.group({ maxSize: 240 });
+          this.enemies = this.physics.add.group({ maxSize: 280 });
+          this.enemyBullets = this.physics.add.group({ maxSize: 200 });
+          this.powerups = this.physics.add.group({ maxSize: 20 });
+          // State
+          this.score = 0; this.wave = 1; this.alive = true; this.autofireTime = 0;
+          document.getElementById('scoreV').textContent = '0';
+          document.getElementById('waveV').textContent  = '1';
+          // Spawn
+          this.spawnWave();
+          // Collisions
+          this.physics.add.overlap(this.bullets, this.enemies, (b,e)=>this.hitEnemy(b,e));
+          this.physics.add.overlap(this.player, this.enemies, ()=>this.hitPlayer());
+          this.physics.add.overlap(this.player, this.enemyBullets, ()=>this.hitPlayer());
+          this.physics.add.overlap(this.player, this.powerups, (p,pu)=>this.pickup(pu));
+          // Input
+          this.cursors = this.input.keyboard.createCursorKeys();
+          this.keys = this.input.keyboard.addKeys('W,A,S,D,SPACE');
+          if(mobile){
+            this.input.on('pointerdown', (p)=>{ touchFire = true; touchMove = { x:p.x, y:p.y }; });
+            this.input.on('pointerup',   ()=>{ touchFire = false; touchMove = null; });
+            this.input.on('pointermove', (p)=>{ if(touchMove){ this.player.x += (p.x - touchMove.x); this.player.y += (p.y - touchMove.y); touchMove = { x:p.x, y:p.y }; }});
+          }
+          document.getElementById('retryBtn').onclick = ()=>{ this.scene.restart(); };
+          this.time.addEvent({ delay: 10000, loop: true, callback: () => this.dropPowerup() });
+        }
+        spawnWave(){
+          const { width:w, height:h } = this.scale;
+          const count = 10 + Math.min(20, Math.floor((this.wave-1)*3.5));
+          for(let i=0;i<count;i++){
+            const x = 40 + Math.random()*(w-80);
+            const y = -20 - Math.random()*420;
+            const e = this.enemies.create(x,y,'enemy').setDepth(3);
+            e.body.setCircle(16,8,4);
+            e.setData('hp', 2 + Math.floor(this.wave/3));
+            e.setVelocity(0, 80 + 14*this.wave + Math.random()*50);
+            e.setData('fireT', Math.random()*1.4);
+          }
+          if(this.wave>0 && this.wave%4===0){
+            const bx = w*0.5 + (Math.random()*120-60);
+            const by = -80;
+            const b = this.enemies.create(bx, by, 'boss').setDepth(3);
+            b.body.setCircle(36,0,0);
+            b.setData('boss', true);
+            b.setData('hp', 22 + this.wave*2);
+            b.setVelocity(0, 60 + this.wave*4);
+            b.setData('fireT', 0.7);
+          }
+        }
+        pickup(pu){
+          pu.destroy();
+          const type = pu.getData('type');
+          if(type==='shield'){ this.shield.setVisible(true); this.shieldTime = 6000; }
+          if(type==='rapid'){ this.rapidTime = 6000; }
+          this.addScore(25);
+        }
+        dropPowerup(){
+          const { width:w } = this.scale;
+          const kind = Math.random() < 0.5 ? 'shield' : 'rapid';
+          const x = 40 + Math.random()*(w-80);
+          const pu = this.powerups.create(x, -20, kind==='shield'?'shield':'bullet');
+          pu.setData('type', kind);
+          pu.setTint(kind==='shield'?0x66e1ff:0xfff2a6);
+          pu.setVelocity(0, 140);
+          this.time.delayedCall(7000, ()=>{ if(pu.active) pu.destroy(); });
+        }
+        hitEnemy(b,e){
+          b.destroy();
+          const hp = (e.getData('hp')||1)-1;
+          if(hp<=0){
+            this.explode(e.x,e.y,true);
+            e.destroy();
+            this.addScore(e.getData('boss')?150:10);
+            this.cameras.main.shake(60, 0.0025);
+          }else{
+            e.setData('hp', hp);
+            e.setTint(0xffdddd);
+            this.time.delayedCall(90, ()=>e.clearTint());
+          }
+        }
+        hitPlayer(){
+          if(this.shield.visible){
+            this.shield.setVisible(false);
+            this.cameras.main.flash(120, 255,255,255);
+            return;
+          }
+          if(!this.alive) return;
+          this.lives -= 1; document.getElementById('livesV').textContent = String(this.lives);
+          if(this.lives > 0){
+            this.explode(this.player.x,this.player.y,true);
+            this.player.setPosition(this.scale.width*0.5, this.scale.height*0.78);
+            this.player.setVelocity(0,0);
+            this.cameras.main.flash(120, 255,255,255);
+            this.shield.setVisible(true); this.shieldTime = 2500;
+            return;
+          }
+          this.alive = false;
+          this.explode(this.player.x,this.player.y,true);
+          this.player.setVisible(false);
+          this.endRound();
+        }
+        addScore(v){ this.score += v; document.getElementById('scoreV').textContent = String(this.score); }
+        explode(x,y,big=false){
+          const p = this.add.particles('spark').setDepth(6);
+          p.createEmitter({ x, y, speed:{min:-260,max:260}, angle:{min:0,max:360},
+            scale:{start:big?1.2:0.8,end:0}, lifespan:{min:320,max:740}, blendMode:'ADD', gravityY:260, quantity:26 });
+          this.time.delayedCall(480, ()=>p.destroy());
+        }
+        update(time, dtMs){
+          const dt = dtMs/1000;
+          const { width:w, height:h } = this.scale;
+          this.bg1.tilePositionX = (this.bg1.tilePositionX||0) + 4;
+          this.bg2.tilePositionX = (this.bg2.tilePositionX||0) + 2;
+          if(this.shield.visible){ this.shieldTime = (this.shieldTime||0)-dt*1000; if(this.shieldTime<=0){ this.shield.setVisible(false); } }
+          if(this.rapidTime){ this.rapidTime -= dt*1000; if(this.rapidTime<=0) this.rapidTime=0; }
+          if(this.alive){
+            let vx=0, vy=0;
+            if(this.cursors.left.isDown || this.keys.A.isDown) vx -= 1;
+            if(this.cursors.right.isDown || this.keys.D.isDown) vx += 1;
+            if(this.cursors.up.isDown || this.keys.W.isDown) vy -= 1;
+            if(this.cursors.down.isDown || this.keys.S.isDown) vy += 1;
+            if(vx||vy){ const m=Math.hypot(vx,vy); vx/=m; vy/=m; }
+            const accel = 900;
+            this.player.body.velocity.x += vx*accel*dt;
+            this.player.body.velocity.y += vy*accel*dt;
+            this.player.x = Phaser.Math.Clamp(this.player.x, 22, w-22);
+            this.player.y = Phaser.Math.Clamp(this.player.y, 22, h-22);
+            this.shield.setPosition(this.player.x, this.player.y);
+            this.autofireTime -= dt;
+            const firing = this.keys.SPACE.isDown || this.cursors.space?.isDown || touchFire || true;
+            const cadence = (this.rapidTime && this.rapidTime>0) ? 0.07 : 0.12;
+            if(firing && this.autofireTime<=0){ this.fireBullet(); this.autofireTime = cadence; }
+            this.enemies.children.iterate(e=>{
+              if(!e) return;
+              let t = e.getData('fireT') || 0; t -= dt;
+              if(t<=0){ t = e.getData('boss') ? 0.4 : (1.0 + Math.random()*1.0); this.fireEnemyBullet(e.x + (Math.random()*10-5), e.y+10, e.getData('boss')); }
+              e.setData('fireT', t);
+              if(e.y > h+60){ e.y = -20 - Math.random()*340; e.x = 40 + Math.random()*(w-80); e.setVelocity(0, 80 + 14*this.wave + Math.random()*50); }
+            });
+            if(this.enemies.countActive(true) === 0){ this.wave++; document.getElementById('waveV').textContent = String(this.wave); this.spawnWave(); this.addScore(60); }
+          }
+        }
+        fireBullet(){
+          const b = this.bullets.get(this.player.x, this.player.y-18, 'bullet');
+          if(!b) return; b.setActive(true).setVisible(true).setDepth(5); b.body.setSize(6,16,true); b.setVelocity(0, -640);
+          this.time.delayedCall(2000, ()=>{ if(b.active) b.destroy(); });
+        }
+        fireEnemyBullet(x,y,isBoss=false){
+          const b = this.enemyBullets.get(x,y,'bullet');
+          if(!b) return; b.setTint(0xff7a7a).setActive(true).setVisible(true).setDepth(4); b.body.setSize(6,16,true);
+          b.setVelocity(0, isBoss ? 300 : (240 + this.wave*7));
+          this.time.delayedCall(3000, ()=>{ if(b.active) b.destroy(); });
+        }
+        endRound(){
+          document.getElementById('ovWave').textContent  = String(this.wave);
+          document.getElementById('ovScore').textContent = String(this.score);
+          document.getElementById('overlay').style.display = 'flex';
+        }
+      }
+      if(mobile){
+        window.addEventListener('touchstart', ()=>{ touchFire = true; }, {passive:true});
+        window.addEventListener('touchend',   ()=>{ touchFire = false; }, {passive:true});
+      }
+      new Phaser.Game({
+        type: Phaser.AUTO, width: 960, height: 540, parent: 'gameBox',
+        backgroundColor: '#0e1220',
+        physics: { default: 'arcade', arcade: { gravity: { y: 0 }, debug: false } },
+        scene: [Play],
+        scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH }
+      });
+    }
+  })();
+  </script>
+</body>
+</html>
